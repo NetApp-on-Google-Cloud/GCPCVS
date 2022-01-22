@@ -1,0 +1,6 @@
+requests
+google
+google.auth
+google-api-python-client
+typer
+tabulate
