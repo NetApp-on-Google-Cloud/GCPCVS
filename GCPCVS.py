@@ -24,14 +24,17 @@ class GCPCVS():
                 "User-Agent": "GCPCVS"
             }
 
-    def __init__(self, project: str, service_account: str):
+    def __init__(self, service_account: str, project: str = None):
         """
         Args:
+            service_account (str): service account key with cloudvolumes.admin permissions
+                Can be specified in multiple ways:
+                1. Absolute file path to an JSON key file
+                2. JSON key as base64-encoded string
+                3. Service Account principal name when using service account impersonation
             project (str): Google project_number or project_id or None
                 If "None", project_id is fetched from service_account
                 If using project_id, resourcemanager.projects.get permissions are required
-            service_account (str): service account key with cloudvolumes.admin permissions
-                Either specify file path to JSON key file or pass key as base64-encoded string    
         """
 
         self.service_account = service_account
@@ -41,12 +44,13 @@ class GCPCVS():
             # Fetch projectID from JSON key file
             project = self.token.getProjectID()
 
+        # Initialize projectID. Its is now either a valid projectId, or at least the project number
+        self.projectId = project
         # Resolve projectID to projectNumber
         if re.match(r"[a-zA-z][a-zA-Z0-9-]+", project):
-            self.projectId = project
             project = getGoogleProjectNumber(project)
             if project == None:
-                raise ValueError("Cannot resolve projectId to project number. Please specify project number.")                
+                raise ValueError("Cannot resolve projectId to project number. Please specify project number.")
         self.project = project
 
         self.baseurl = 'https://cloudvolumesgcp-api.netapp.com/v2/projects/' + str(self.project)
