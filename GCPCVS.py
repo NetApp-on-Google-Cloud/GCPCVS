@@ -169,6 +169,19 @@ class GCPCVS():
         logging.info(f"setServiceLevelByVolumeID {region}, {volumeID}, {serviceLevel}")
         self._modifyVolumeByVolumeID(region, volumeID, {"serviceLevel": self.translateServiceLevelUI2API(serviceLevel)})
 
+    def deleteVolumeByVolumeID(self, region: str, volumeID: str) -> dict:
+        """ delete volumes with "volumeID" in specified region
+        
+        Args:
+            region (str): Name of GCP region
+            volumeID (str): volumeID of volume
+        """     
+
+        logging.info(f"deleteVolumeByVolumeID {region}, {volumeID}")
+        r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
+        r.raise_for_status()
+        return r.json()
+
     # CVS API uses serviceLevel = (basic, standard, extreme)
     # CVS UI uses serviceLevel = (standard, premium, extreme)
     # yes, the name "standard" has two different meaning *sic*
