@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from BearerAuth import BearerAuth
-from getGoogleProjectNumber import getGoogleProjectNumber
+from .BearerAuth import BearerAuth
+from .getGoogleProjectNumber import getGoogleProjectNumber
 import requests
 import logging
 import re
