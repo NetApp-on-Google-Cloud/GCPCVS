@@ -35,10 +35,8 @@ gcloud projects add-iam-policy-binding $project --member="serviceAccount:cvs-api
 
 3. Installation
 ```bash
-mkdir GCPCVS && cd GCPCVS
-git clone <this repo>
-pip3 install -r requirements
-cd ..
+git clone https://github.com/NetApp-on-Google-Cloud/GCPCVS.git
+pip3 install -r GCPCVS/requirements.txt
 ```
 4. Run sample code
 ```python
