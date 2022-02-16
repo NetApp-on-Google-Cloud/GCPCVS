@@ -40,7 +40,7 @@ pip3 install -r GCPCVS/requirements.txt
 ```
 4. Run sample code
 ```python
-import GCVCVS
+import GCPCVS
 from tabulate import tabulate
 
 project = "my-gcp-project"
@@ -66,6 +66,8 @@ the cvs.py script emulates gcloud-like behaviour (read-only). It's more a proof 
 export SERVICE_ACCOUNT_CREDENTIAL=cvs-api-admin@my-gcp-project.iam.gserviceaccount.com
 alias gcloud-cvs="python3 -m GCPCVS.cvs"
 gcloud-cvs volume list
+# or output JSON
+gcloud-cvs volume list --format json
 ``` 
 
 ## Getting help
