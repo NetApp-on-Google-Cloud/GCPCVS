@@ -12,9 +12,13 @@ Example:
 ```bash
 project=$(gcloud config get-value project)
 
-gcloud iam service-accounts create cvs-api-admin --description "Admin SA for CVS API access" --display-name "cloudvolumes-admin-sa"
+gcloud iam service-accounts create cvs-api-admin \
+--description "Admin SA for CVS API access" \
+--display-name "cloudvolumes-admin-sa"
 
-gcloud projects add-iam-policy-binding $project --member="serviceAccount:cvs-api-admin@$project.iam.gserviceaccount.com" --role='roles/netappcloudvolumes.admin'
+gcloud projects add-iam-policy-binding $project \
+--member="serviceAccount:cvs-api-admin@$project.iam.gserviceaccount.com" \
+--role='roles/netappcloudvolumes.admin'
 ```
 
 2. Decide with authentication method to use:
@@ -23,14 +27,17 @@ gcloud projects add-iam-policy-binding $project --member="serviceAccount:cvs-api
     
         Example:
         ```bash
-        gcloud iam service-accounts keys create cvs-api-admin.json --iam-account cvs-api-admin@$project.iam.gserviceaccount.com
+        gcloud iam service-accounts keys create cvs-api-admin.json \
+        --iam-account cvs-api-admin@$project.iam.gserviceaccount.com
         ```
    2. Service Account Impersonation
     Allow your run-user (Google IAM principal running the code) to impersonate the CVS service-account.
 
         Example:
         ```bash
-        gcloud iam service-accounts add-iam-policy-binding cvs-api-user@cv-product-management.iam.gserviceaccount.com --member=user:<your_google_user> --role=roles/iam.serviceAccountTokenCreator
+        gcloud iam service-accounts add-iam-policy-binding cvs-api-user@cv-product-management.iam.gserviceaccount.com \
+        --member=user:<your_google_user> \
+        --role=roles/iam.serviceAccountTokenCreator
         ```
 
 3. Installation
