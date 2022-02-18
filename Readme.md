@@ -35,7 +35,7 @@ gcloud projects add-iam-policy-binding $project \
 
         Example:
         ```bash
-        gcloud iam service-accounts add-iam-policy-binding cvs-api-user@cv-product-management.iam.gserviceaccount.com \
+        gcloud iam service-accounts add-iam-policy-binding cvs-api-user@$project.iam.gserviceaccount.com \
         --member=user:<your_google_user> \
         --role=roles/iam.serviceAccountTokenCreator
         ```

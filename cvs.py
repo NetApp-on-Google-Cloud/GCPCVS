@@ -77,11 +77,11 @@ if __name__ == "__main__":
     import sys
     from os import getenv
 
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-    keyfile = getenv('SERVICE_ACCOUNT_CREDENTIAL', None)
-    if keyfile == None:
+    logging.basicConfig(level=logging.ERROR)
+    credentials = getenv('SERVICE_ACCOUNT_CREDENTIAL', None)
+    if credentials == None:
         logging.error('Missing service account credentials. Please set SERVICE_ACCOUNT_CREDENTIAL.')
         sys.exit(2)
 
-    cvs = GCPCVS.GCPCVS(keyfile)
+    cvs = GCPCVS.GCPCVS(credentials)
     app()

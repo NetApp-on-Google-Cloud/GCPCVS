@@ -169,17 +169,89 @@ class GCPCVS():
         logging.info(f"setServiceLevelByVolumeID {region}, {volumeID}, {serviceLevel}")
         self._modifyVolumeByVolumeID(region, volumeID, {"serviceLevel": self.translateServiceLevelUI2API(serviceLevel)})
 
+    def createVolume(self, region: str, payload: dict, timeout: int = 10) -> dict:
+        """ Creates a volume. Basic method. May add more specifc ones which build on top of it later
+                
+        Args:
+            region (str): Name of GCP region
+            payload (dict): dict with all parameters
+            timeout (int): Timeout in minutes, default = 10
+
+        Returns:
+            dict: Returns dict with volume description
+        """
+
+        logging.info(f"createVolume {region}, {payload}")
+        retries = timeout
+        while retries > 0:
+            r = requests.post(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token, json=payload)
+            if r.status_code == 500:
+                reason = r.json()
+                if 'message' in reason:                    
+                    if reason['message'].startswith("Error creating volume - Cannot spawn additional jobs"):
+                        logging.info(f"createVolume: Waiting for next job slot.")
+                        sleep(60)
+                        retries = retries - 1
+                    else:
+                        logging.error(f"createVolume: 500 - {reason['message']}")
+                        break
+                else:
+                    logging.error(f"createVolume: 500 - {reason}")
+                    break
+            else:
+                break
+        r.raise_for_status()
+
+        volumeID = r.json()['response']['AnyValue']['volumeId']
+        if r.status_code == 200: 
+            # volume created
+            r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
+            r.raise_for_status()
+            return r.json() # return data of new volume
+        if r.status_code == 202: 
+            # volume still creating, wait for completion
+            volumeID = r.json()['response']['AnyValue']['volumeId']
+            while True:
+                sleep(20)
+                r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
+                r.raise_for_status()
+                state = r.json()['lifeCycleState']
+                if state != "creating":
+                    break
+            return r.json() # return data of new volume. Might have failed to create. Caller needs to check lifeCycleState
+
+        # We are not supposed to reach this code, since we either get 200 or 202 or raise an exception
+        return {}
+
     def deleteVolumeByVolumeID(self, region: str, volumeID: str) -> dict:
         """ delete volumes with "volumeID" in specified region
         
         Args:
             region (str): Name of GCP region
             volumeID (str): volumeID of volume
+        Returns:
+            dict: Returns API response as dict            
         """     
 
         logging.info(f"deleteVolumeByVolumeID {region}, {volumeID}")
-        r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        retries = 10
+        while retries > 0:
+            r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
+            if r.status_code == 500:
+                reason = r.json()
+                if 'message' in reason:                    
+                    if reason['message'].startswith("Error deleting volume - Cannot spawn additional jobs"):
+                        logging.info(f"deleteVolumeByVolumeID: Waiting for next job slot.")
+                        sleep(60)
+                        retries = retries - 1
+                    else:
+                        logging.error(f"deleteVolumeByVolumeID: 500 - {reason['message']}")
+                        break
+                else:
+                    break
+            else:
+                break
+        r.raise_for_status()        
         return r.json()
 
     # CVS API uses serviceLevel = (basic, standard, extreme)
@@ -247,6 +319,21 @@ class GCPCVS():
 
         logging.info(f"getSnapshotsByRegion {region}")
         r = requests.get(f"{self.baseurl}/locations/{region}/Snapshots", headers=self.headers, auth=self.token)
+        r.raise_for_status()
+        return r.json()
+
+    def deleteSnapshotBySnapshotID(self, region: str, snaphotID: str) -> dict:
+        """ delete snapshot with snapshotID in specified region
+        
+        Args:
+            region (str): Name of GCP region
+            snapshotID (str): snapshotID
+        Returns:
+            dict: Returns API response as dict            
+        """     
+
+        logging.info(f"deleteSnapshotBySnapshotID {region}, {snaphotID}")
+        r = requests.delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}", headers=self.headers, auth=self.token)
         r.raise_for_status()
         return r.json()
 
@@ -389,8 +476,8 @@ class GCPCVS():
         return True
 
     # Deletes a CVS backup specified by region and backupID            
-    def deleteBackupbyBackupID(self, region: str, backupID: str) -> bool:
-        logging.info(f"deleteBackupbyBackupID: {region}, {backupID} begin")
+    def deleteBackupByBackupID(self, region: str, backupID: str) -> bool:
+        logging.info(f"deleteBackupByBackupID: {region}, {backupID} begin")
         while True:
             r = requests.delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", headers=self.headers, auth=self.token)
             # Keep trying if 429 (Too Many Requests)
@@ -399,10 +486,10 @@ class GCPCVS():
             sleep(5)
 
         if r.status_code == 200 or r.status_code == 202:
-            logging.info(f"deleteBackupbyBackupID: {region}, {backupID} done.")
+            logging.info(f"deleteBackupByBackupID: {region}, {backupID} done.")
             return True
         else:
-            logging.error(f"deleteBackupbyBackupID: Deleting backup {backupID} in region {region} failed.")
+            logging.error(f"deleteBackupByBackupID: Deleting backup {backupID} in region {region} failed.")
             return False
 
     # Deletes a CVS Backup specified by region and name
@@ -448,6 +535,7 @@ class GCPCVS():
         
         Args:
             region (str): name of GCP region. "-" for all
+            configID (str): UUID fo KMS configuration
 
         Returns:
             list[dict]: a list of dicts with KMS config descriptions
@@ -458,8 +546,18 @@ class GCPCVS():
         r.raise_for_status()
         return r.json()
 
-    def deleteKMSConfigbyBackupID(self, region: str, configID: str) -> bool:
-        logging.info(f"deleteKMSConfigbyBackupID: {region}, {configID} begin")
+    def deleteKMSConfigurationByID(self, region: str, configID: str) -> bool:
+        """ deletes a KMS configurations in specified region with configID
+        
+        Args:
+            region (str): name of GCP region
+            configID (str): UUID fo KMS configuration
+
+        Returns:
+            bool: True/False for success of delete operation
+        """
+
+        logging.info(f"deleteKMSConfigurationByID: {region}, {configID} begin")
         while True:
             r = requests.delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", headers=self.headers, auth=self.token)
             # Keep trying if 429 (Too Many Requests)
@@ -468,24 +566,54 @@ class GCPCVS():
             sleep(5)
 
         if r.status_code == 200 or r.status_code == 202:
-            logging.info(f"deleteBackupbyBackupID: {region}, {configID} done.")
+            logging.info(f"deleteKMSConfigurationByID: {region}, {configID} done.")
             return True
         else:
-            logging.error(f"deleteKMSConfigbyBackupID: Deleting config {configID} in region {region} failed.")
+            logging.error(f"deleteKMSConfigurationByID: Deleting config {configID} in region {region} failed.")
             return False
+
+    def getActiveDirectoryConfigurationByRegion(self, region: str) -> list[dict]:
+        """ returns list with dicts of all AD configurations in specified region
+        
+        Args:
+            region (str): name of GCP region. "-" for all
+
+        Returns:
+            list[dict]: a list of dicts with AD configuration descriptions
+        """
+
+        logging.info(f"getActiveDirectoryConfigurationByRegion {region}")
+        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory", headers=self.headers, auth=self.token)
+        r.raise_for_status()
+        return r.json()
+
+    def getActiveDirectoryConfigurationByID(self, region: str, configID: str) -> list[dict]:
+        """ returns list with dicts of all AD configurations in specified region
+        
+        Args:
+            region (str): name of GCP region. "-" for all
+
+        Returns:
+            list[dict]: a list of dicts with AD configurations descriptions
+        """
+
+        logging.info(f"getActiveDirectoryConfigurationByID {region} {configID}")
+        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory/{configID}", headers=self.headers, auth=self.token)
+        r.raise_for_status()
+        return r.json()
 
 if __name__ == "__main__":
     """" Read data from CVS API
     
     Usage: GCPCVS.py <keyfile> <region> <API_path>
-        keyfile = File path to a valid JSON key of service account with cloudvolumes.viewer or admin permissions
+        credentials = File path to a valid JSON key of service account with cloudvolumes.viewer or admin permissions or SSI service account
         region = Name of GCP region or "-" for all regions
         <API_path> = Suffix part of CVS API GET call paths
 
     Output:
         Tool returns JSON output as returned by API. Hint: Pipe into 'jq' for further processing
 
-    The tool automatically fetches projectID from the provided keyfile.
+    The tool automatically fetches projectID from the provided credentials.
     CVS API Paths look like:
     /v2/projects/{projectNumber}/locations/{locationId}/Volumes
     The tool automatically takes care of the 
@@ -494,7 +622,7 @@ if __name__ == "__main__":
     
     Examples:
         GCPCVS.py keyfile.json - Volumes
-        GCPCVS.py keyfile.json us-east4 Volumes/704eae52-9010-ea4d-0408-08ca39ffb67f
+        GCPCVS.py cvs-admin@my-project.iam.gserviceaccount.com us-east4 Volumes/704eae52-9010-ea4d-0408-08ca39ffb67f
         GCPCVS.py keyfile.json us-west1 version
         GCPCVS.py keyfile.json - Snapshots
         GCPCVS.py keyfile.json - Storage/ActiveDirectory
@@ -504,17 +632,14 @@ if __name__ == "__main__":
     from pathlib import Path
 
     if len(sys.argv) != 4:
-        logging.notice("Usage: GCPCVS.py <key_file_path> <region> <API_URL_PATH>")
+        logging.notice("Usage: GCPCVS.py <credentials> <region> <API_URL_PATH>")
         sys.exit(1)
 
-    keyfile = Path(sys.argv[1])
+    credentials = Path(sys.argv[1])
     region = sys.argv[2]
     urlpath = sys.argv[3]
-    if not keyfile.is_file():
-        logging.error(f"KeyFile: {keyfile} not found.")
-        sys.exit(2)
 
-    cvs = GCPCVS(None, keyfile)
+    cvs = GCPCVS(None, credentials)
     result = cvs._API_getAll(region, urlpath)
     if result.status_code == 200:
         print(json.dumps(result.json(), indent=4))
