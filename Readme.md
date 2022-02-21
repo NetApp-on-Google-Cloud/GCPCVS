@@ -6,6 +6,7 @@ API documentation: https://cloudvolumesgcp-api.netapp.com/swagger.json
 
 ## Documentation
 
+
 1. Create CVS service account with roles/netappcloudvolumes.admin. See https://cloud.google.com/architecture/partners/netapp-cloud-volumes/api?hl=en_US#creating_your_service_account_and_private_key
 
 Example:
@@ -39,6 +40,7 @@ gcloud projects add-iam-policy-binding $project \
         --member=user:<your_google_user> \
         --role=roles/iam.serviceAccountTokenCreator
         ```
+    If your "run-user" is your "gcloud" user, make sure you setup your [Application Default Credentials (ADC)](https://google.aip.dev/auth/4110). Depending on the environment you run on, ADC can be set differently. If you run on a system you usually use to run gcloud commands, the most likely way to do it is to run "gcloud auth application-default login".
 
 3. Installation
 ```bash
@@ -67,7 +69,7 @@ For more available methods, see source code in GCPCVS.py.
 
 ## gcloud-like CVS tool
 
-the cvs.py script emulates gcloud-like behaviour (read-only). It's more a proof of concept. Set SERVICE_ACCOUNT_CREDENTIAL to your absolute key file path or service account name.
+The cvs.py script emulates gcloud-like behaviour (read-only). It's more a proof of concept. Set SERVICE_ACCOUNT_CREDENTIAL to your absolute key file path or service account name. Make sure you did setup your ADC properly (see above).
 
 ```bash
 export SERVICE_ACCOUNT_CREDENTIAL=cvs-api-admin@my-gcp-project.iam.gserviceaccount.com
