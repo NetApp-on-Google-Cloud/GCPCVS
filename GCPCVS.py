@@ -65,12 +65,19 @@ class GCPCVS():
     def getProjectID(self) -> str:
         return self.projectId
 
-    # generic GET function for internal use. Specify region and Suffix part of API paths to read any kind of object
-    # returns request result object
-    # No error handling. Handle errors yourself, using result object
-    def _API_getAll(self, region, path):
-        r = requests.get(f"{self.baseurl}/locations/{region}/{path}", headers=self.headers, auth=self.token)
+    # Unified request response hook
+    # CVS API returns error details in response body. Give users a chance to get see that messages
+    def _log_response(self, resp, *args, **kwargs):
+        if resp.status_code not in [200, 202]:
+            logging.error(f"{resp.url} returned: {resp.text}")
+
+   # generic GET function for internal use.
+   # Adds error logging for HTTP errors and throws expections
+    def _do_api_get(self, url):
+        r = requests.get(url, headers=self.headers, auth=self.token, hooks={'response': self._log_response})
+        r.raise_for_status()
         return r
+
     #
     # Volumes
     #
@@ -86,8 +93,7 @@ class GCPCVS():
         """
 
         logging.info(f"getVolumesByRegion {region}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
         return r.json()
 
     def getVolumesByName(self, region: str, volname: str) -> list[dict]:
@@ -102,8 +108,7 @@ class GCPCVS():
         """     
 
         logging.info(f"getVolumesByName {region}, {volname}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
         return [volume for volume in r.json() if volume["name"] == volname]
 
     def getVolumesByVolumeID(self, region: str, volumeID: str) -> dict:
@@ -118,8 +123,7 @@ class GCPCVS():
         """     
 
         logging.info(f"getVolumesByVolumeID {region}, {volumeID}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
         return r.json()
         
     def _modifyVolumeByVolumeID(self, region: str, volumeID: str, changes: dict) -> dict:
@@ -136,12 +140,11 @@ class GCPCVS():
 
         logging.info(f"modifyVolumeByVolumeID {region}, {volumeID}, {changes}")
         # read volume
-        r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
-        r.raise_for_status()
-        volume = r.json()
-        for k in changes:
-            volume[k] = changes[k]
-        r = requests.put(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, json=volume)
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
+        # Merge changes
+        volume = {**r.json(), **changes}
+        # Update volume
+        r = requests.put(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, json=volume, hooks={'response': self._log_response})
         r.raise_for_status()
         return r.json()
     
@@ -184,7 +187,7 @@ class GCPCVS():
         logging.info(f"createVolume {region}, {payload}")
         retries = timeout
         while retries > 0:
-            r = requests.post(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token, json=payload)
+            r = requests.post(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token, json=payload, hooks={'response': self._log_response})
             if r.status_code == 500:
                 reason = r.json()
                 if 'message' in reason:                    
@@ -205,22 +208,23 @@ class GCPCVS():
         volumeID = r.json()['response']['AnyValue']['volumeId']
         if r.status_code == 200: 
             # volume created
-            r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
-            r.raise_for_status()
+            r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
+            logging.info(f"createVolume: {region}, {volumeID} created")
             return r.json() # return data of new volume
         if r.status_code == 202: 
             # volume still creating, wait for completion
             volumeID = r.json()['response']['AnyValue']['volumeId']
             while True:
                 sleep(20)
-                r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
-                r.raise_for_status()
+                r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
                 state = r.json()['lifeCycleState']
                 if state != "creating":
                     break
+            logging.info(f"createVolume: {region}, {volumeID} created")
             return r.json() # return data of new volume. Might have failed to create. Caller needs to check lifeCycleState
 
         # We are not supposed to reach this code, since we either get 200 or 202 or raise an exception
+        logging.error(f"createVolume: {region}, {volumeID}: reached unexpected code path")
         return {}
 
     def deleteVolumeByVolumeID(self, region: str, volumeID: str) -> dict:
@@ -236,7 +240,7 @@ class GCPCVS():
         logging.info(f"deleteVolumeByVolumeID {region}, {volumeID}")
         retries = 10
         while retries > 0:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token)
+            r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
             if r.status_code == 500:
                 reason = r.json()
                 if 'message' in reason:                    
@@ -318,8 +322,7 @@ class GCPCVS():
         """
 
         logging.info(f"getSnapshotsByRegion {region}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Snapshots", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Snapshots")
         return r.json()
 
     def deleteSnapshotBySnapshotID(self, region: str, snaphotID: str) -> dict:
@@ -333,7 +336,7 @@ class GCPCVS():
         """     
 
         logging.info(f"deleteSnapshotBySnapshotID {region}, {snaphotID}")
-        r = requests.delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}", headers=self.headers, auth=self.token)
+        r = requests.delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
         r.raise_for_status()
         return r.json()
 
@@ -352,8 +355,7 @@ class GCPCVS():
         """
 
         logging.info(f"getVolumeReplicationByRegion {region}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/VolumeReplications", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/VolumeReplications")
         return r.json()
 
     #
@@ -371,8 +373,7 @@ class GCPCVS():
         """
 
         logging.info(f"getBackups {region}")        
-        r = requests.get(f"{self.baseurl}/locations/{region}/Backups", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Backups")
         return r.json()
 
     def getBackupsByVolumeID(self, region: str, volumeID: str) -> list[dict]:
@@ -387,8 +388,7 @@ class GCPCVS():
         """  
 
         logging.info(f"getBackupsByVolume {region}, {volumeID}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}/Backups", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}/Backups")
         return r.json()
 
     # creates a CVS backup of specified volume with specified name
@@ -409,14 +409,13 @@ class GCPCVS():
             "name": name,
             "volumeId": volumeID
         }
-        r = requests.post(f"{self.baseurl}/locations/{region}/Backups", headers=self.headers, auth=self.token, json=body)
+        r = requests.post(f"{self.baseurl}/locations/{region}/Backups", headers=self.headers, auth=self.token, json=body, hooks={'response': self._log_response})
         if r.status_code == 201 or r.status_code == 202:
             # Wait until backup is complete
             backupID = r.json()["response"]["AnyValue"]["backupId"]
             while True:
                 sleep(5)
-                r = requests.get(f"{self.baseurl}/locations/{region}/Backups/{backupID}", headers=self.headers, auth=self.token)
-                r.raise_for_status()
+                r = self._do_api_get(f"{self.baseurl}/locations/{region}/Backups/{backupID}")
                 status = r.json()["lifeCycleState"]
                 if status == "available":
                     break
@@ -479,7 +478,7 @@ class GCPCVS():
     def deleteBackupByBackupID(self, region: str, backupID: str) -> bool:
         logging.info(f"deleteBackupByBackupID: {region}, {backupID} begin")
         while True:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", headers=self.headers, auth=self.token)
+            r = requests.delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
             # Keep trying if 429 (Too Many Requests)
             if r.status_code != 429:
                 break
@@ -526,8 +525,7 @@ class GCPCVS():
         """
 
         logging.info(f"getKMSConfigurationByRegion {region}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/KmsConfig", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/KmsConfig")
         return r.json()
          
     def getKMSConfigurationByID(self, region: str, configID: str) -> list[dict]:
@@ -542,8 +540,7 @@ class GCPCVS():
         """
 
         logging.info(f"getKMSConfigurationByID {region} {configID}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}")
         return r.json()
 
     def deleteKMSConfigurationByID(self, region: str, configID: str) -> bool:
@@ -559,7 +556,7 @@ class GCPCVS():
 
         logging.info(f"deleteKMSConfigurationByID: {region}, {configID} begin")
         while True:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", headers=self.headers, auth=self.token)
+            r = requests.delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
             # Keep trying if 429 (Too Many Requests)
             if r.status_code != 429:
                 break
@@ -583,8 +580,7 @@ class GCPCVS():
         """
 
         logging.info(f"getActiveDirectoryConfigurationByRegion {region}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory")
         return r.json()
 
     def getActiveDirectoryConfigurationByID(self, region: str, configID: str) -> list[dict]:
@@ -598,8 +594,7 @@ class GCPCVS():
         """
 
         logging.info(f"getActiveDirectoryConfigurationByID {region} {configID}")
-        r = requests.get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory/{configID}", headers=self.headers, auth=self.token)
-        r.raise_for_status()
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory/{configID}")
         return r.json()
 
 if __name__ == "__main__":
@@ -640,7 +635,7 @@ if __name__ == "__main__":
     urlpath = sys.argv[3]
 
     cvs = GCPCVS(None, credentials)
-    result = cvs._API_getAll(region, urlpath)
+    result = cvs._do_api_get(f"{cvs.baseurl}/locations/{region}/{urlpath}")
     if result.status_code == 200:
         print(json.dumps(result.json(), indent=4))
     else:
