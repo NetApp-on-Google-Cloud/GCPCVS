@@ -78,6 +78,14 @@ class GCPCVS():
         r.raise_for_status()
         return r
 
+    # generic GET function for internal use. Specify region and Suffix part of API paths to read any kind of object
+    # returns request result object
+    # No error handling. Handle errors yourself, using result object
+    def _API_getAll(self, region, path):
+        r = requests.get(f"{self.baseurl}/locations/{region}/{path}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
+        r.raise_for_status()
+        return r
+
     #
     # Volumes
     #
