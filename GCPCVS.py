@@ -4,6 +4,7 @@ from .getGoogleProjectNumber import getGoogleProjectNumber
 import requests
 import logging
 import re
+import random
 from time import sleep
 from datetime import datetime
 
@@ -86,6 +87,120 @@ class GCPCVS():
         r.raise_for_status()
         return r
 
+   # generic POST function for internal use.
+   # Implements waiting for job slots
+   # Adds error logging for HTTP errors and throws expections
+   # returns requests response object
+    def _do_api_post(self, url: str, payload: dict, max_retries: int = 10):
+        logging.info(f"REST POST {url}")
+
+        retries = max_retries
+        while retries > 0:
+            r = requests.post(url, headers=self.headers, auth=self.token, json=payload, hooks={'response': self._log_response})
+            if r.status_code == 500:
+                reason = r.json()
+                if 'message' in reason:                    
+                    if "Cannot spawn additional jobs" in reason['message']:
+                        logging.info(f"API POST: Waiting for next job slot.")
+                        # Wati fo 45-75 seconds
+                        sleep(random.randrange(45,75))
+                        retries = retries - 1
+                    else:
+                        logging.error(f"API POST: 500 - {reason['message']}")
+                        break
+                else:
+                    logging.error(f"API POST: 500 - {reason}")
+                    break
+            else:
+                break
+        r.raise_for_status()
+        return r
+
+    #
+    # StoragePools
+    #
+
+    def getPoolsByRegion(self, region: str) -> list[dict]:
+        """ returns list with dicts of all pools in specified region
+        
+        Args:
+            region (str): name of GCP region. "-" for all
+
+        Returns:
+            list[dict]: a list of dicts with pool descriptions
+        """
+
+        logging.info(f"getPoolsByRegion {region}")
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools")
+        return r.json()
+
+    def getPoolsByName(self, region: str, name: str) -> list[dict]:
+        """ returns list with dicts of pools named "name" in specified region
+        
+        Args:
+            region (str): Name of GCP region. "-" for all
+            name (str): Name of pool
+
+        Returns:
+            list[dict]: a list of dicts with pool descriptions
+        """     
+
+        logging.info(f"getPoolsByName {region}, {name}")
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools")
+        return [pool for pool in r.json() if pool["name"] == name]
+
+    def getPoolsByVolumeID(self, region: str, poolID: str) -> dict:
+        """ returns list with dicts of volumes with "poolID" in specified region
+        
+        Args:
+            region (str): Name of GCP region. "-" for all
+            poolID (str): poolID of pool
+
+        Returns:
+            list[dict]: a list of dicts with pool descriptions
+        """     
+
+        logging.info(f"getPoolsByVolumeID {region}, {poolID}")
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
+        return r.json()
+
+    def createPool(self, region: str, payload: dict, retries: int = 10) -> dict:
+        """ Creates a StoragePool. Basic method. May add more specifc ones which build on top of it later
+                
+        Args:
+            region (str): Name of GCP region
+            payload (dict): dict with all parameters
+            retries (int): Retries, default = 10
+
+        Returns:
+            dict: Returns dict with pool description
+        """
+
+        logging.info(f"createPool {region}, {payload}")
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Pools", payload, retries)
+
+        poolID = r.json()['response']['AnyValue']['poolId']
+        if r.status_code == 200: 
+            # pool created
+            r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
+            logging.info(f"createVolume: {region}, {poolID} created")
+            return r.json() # return data of new volume
+        if r.status_code == 202: 
+            # volume still creating, wait for completion
+            volumeID = r.json()['response']['AnyValue']['poolId']
+            while True:
+                sleep(20)
+                r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
+                state = r.json()['state']
+                if state != "creating":
+                    break
+            logging.info(f"createPool: {region}, {poolID} created")
+            return r.json() # return data of new pool. Might have failed to create. Caller needs to check lifeCycleState
+
+        # We are not supposed to reach this code, since we either get 200 or 202 or raise an exception
+        logging.error(f"createPool: {region}, {poolID}: reached unexpected code path")
+        return {}
+
     #
     # Volumes
     #
@@ -104,20 +219,20 @@ class GCPCVS():
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
         return r.json()
 
-    def getVolumesByName(self, region: str, volname: str) -> list[dict]:
-        """ returns list with dicts of volumes named "volname" in specified region
+    def getVolumesByName(self, region: str, name: str) -> list[dict]:
+        """ returns list with dicts of volumes named "name" in specified region
         
         Args:
             region (str): Name of GCP region. "-" for all
-            volname (str): Name of volume
+            name (str): Name of volume
 
         Returns:
             list[dict]: a list of dicts with volume descriptions
         """     
 
-        logging.info(f"getVolumesByName {region}, {volname}")
+        logging.info(f"getVolumesByName {region}, {name}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
-        return [volume for volume in r.json() if volume["name"] == volname]
+        return [volume for volume in r.json() if volume["name"] == name]
 
     def getVolumesByVolumeID(self, region: str, volumeID: str) -> dict:
         """ returns list with dicts of volumes with "volumeID" in specified region
@@ -180,38 +295,20 @@ class GCPCVS():
         logging.info(f"setServiceLevelByVolumeID {region}, {volumeID}, {serviceLevel}")
         self._modifyVolumeByVolumeID(region, volumeID, {"serviceLevel": self.translateServiceLevelUI2API(serviceLevel)})
 
-    def createVolume(self, region: str, payload: dict, timeout: int = 10) -> dict:
+    def createVolume(self, region: str, payload: dict, retries: int = 10) -> dict:
         """ Creates a volume. Basic method. May add more specifc ones which build on top of it later
                 
         Args:
             region (str): Name of GCP region
             payload (dict): dict with all parameters
-            timeout (int): Timeout in minutes, default = 10
+            retries (int): Retries, default = 10
 
         Returns:
             dict: Returns dict with volume description
         """
 
         logging.info(f"createVolume {region}, {payload}")
-        retries = timeout
-        while retries > 0:
-            r = requests.post(f"{self.baseurl}/locations/{region}/Volumes", headers=self.headers, auth=self.token, json=payload, hooks={'response': self._log_response})
-            if r.status_code == 500:
-                reason = r.json()
-                if 'message' in reason:                    
-                    if reason['message'].startswith("Error creating volume - Cannot spawn additional jobs"):
-                        logging.info(f"createVolume: Waiting for next job slot.")
-                        sleep(60)
-                        retries = retries - 1
-                    else:
-                        logging.error(f"createVolume: 500 - {reason['message']}")
-                        break
-                else:
-                    logging.error(f"createVolume: 500 - {reason}")
-                    break
-            else:
-                break
-        r.raise_for_status()
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Volumes", payload, retries)
 
         volumeID = r.json()['response']['AnyValue']['volumeId']
         if r.status_code == 200: 
@@ -417,7 +514,7 @@ class GCPCVS():
             "name": name,
             "volumeId": volumeID
         }
-        r = requests.post(f"{self.baseurl}/locations/{region}/Backups", headers=self.headers, auth=self.token, json=body, hooks={'response': self._log_response})
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Backups", body, 10)
         if r.status_code == 201 or r.status_code == 202:
             # Wait until backup is complete
             backupID = r.json()["response"]["AnyValue"]["backupId"]
