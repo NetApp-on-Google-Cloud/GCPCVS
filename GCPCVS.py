@@ -102,7 +102,7 @@ class GCPCVS():
                 if 'message' in reason:                    
                     if "Cannot spawn additional jobs" in reason['message']:
                         logging.info(f"API POST: Waiting for next job slot.")
-                        # Wati fo 45-75 seconds
+                        # Wait fo 45-75 seconds
                         sleep(random.randrange(45,75))
                         retries = retries - 1
                     else:
@@ -111,6 +111,39 @@ class GCPCVS():
                 else:
                     logging.error(f"API POST: 500 - {reason}")
                     break
+            else:
+                break
+        r.raise_for_status()
+        return r
+
+   # generic DELETE function for internal use.
+   # Implements waiting for job slots
+   # Adds error logging for HTTP errors and throws expections
+   # returns requests response object
+    def _do_api_delete(self, url: str, max_retries: int = 12):
+        logging.info(f"REST DELETE {url}")
+
+        retries = max_retries
+        while retries > 0:
+            r = requests.delete(url, headers=self.headers, auth=self.token, hooks={'response': self._log_response})
+            if r.status_code == 500:
+                reason = r.json()
+                if 'message' in reason:                    
+                    if "Cannot spawn additional jobs" in reason['message']:
+                        logging.info(f"API DELETE: Waiting for next job slot.")
+                        # Wait fo 5-15 seconds
+                        sleep(random.randrange(5,15))
+                        retries = retries - 1
+                    else:
+                        logging.error(f"API DELETE: 500 - {reason['message']}")
+                        break
+                else:
+                    logging.error(f"API DELETE: 500 - {reason}")
+                    break
+            if r.status_code == 429:
+                # Wait fo 5-15 seconds
+                sleep(random.randrange(5,15))
+                retries = retries - 1
             else:
                 break
         r.raise_for_status()
@@ -343,24 +376,7 @@ class GCPCVS():
         """     
 
         logging.info(f"deleteVolumeByVolumeID {region}, {volumeID}")
-        retries = 10
-        while retries > 0:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-            if r.status_code == 500:
-                reason = r.json()
-                if 'message' in reason:                    
-                    if reason['message'].startswith("Error deleting volume - Cannot spawn additional jobs"):
-                        logging.info(f"deleteVolumeByVolumeID: Waiting for next job slot.")
-                        sleep(60)
-                        retries = retries - 1
-                    else:
-                        logging.error(f"deleteVolumeByVolumeID: 500 - {reason['message']}")
-                        break
-                else:
-                    break
-            else:
-                break
-        r.raise_for_status()        
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", 60)
         return r.json()
 
     # CVS API uses serviceLevel = (basic, standard, extreme)
@@ -441,8 +457,7 @@ class GCPCVS():
         """     
 
         logging.info(f"deleteSnapshotBySnapshotID {region}, {snaphotID}")
-        r = requests.delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-        r.raise_for_status()
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}")
         return r.json()
 
     #
@@ -582,14 +597,9 @@ class GCPCVS():
     # Deletes a CVS backup specified by region and backupID            
     def deleteBackupByBackupID(self, region: str, backupID: str) -> bool:
         logging.info(f"deleteBackupByBackupID: {region}, {backupID} begin")
-        while True:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-            # Keep trying if 429 (Too Many Requests)
-            if r.status_code != 429:
-                break
-            sleep(5)
 
-        if r.status_code == 200 or r.status_code == 202:
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", 60)
+        if r.status_code in [200, 202]:
             logging.info(f"deleteBackupByBackupID: {region}, {backupID} done.")
             return True
         else:
@@ -660,14 +670,8 @@ class GCPCVS():
         """
 
         logging.info(f"deleteKMSConfigurationByID: {region}, {configID} begin")
-        while True:
-            r = requests.delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-            # Keep trying if 429 (Too Many Requests)
-            if r.status_code != 429:
-                break
-            sleep(5)
-
-        if r.status_code == 200 or r.status_code == 202:
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", 60)
+        if r.status_code in [200, 202]:
             logging.info(f"deleteKMSConfigurationByID: {region}, {configID} done.")
             return True
         else:
