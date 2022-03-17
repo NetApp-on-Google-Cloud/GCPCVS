@@ -234,6 +234,20 @@ class GCPCVS():
         logging.error(f"createPool: {region}, {poolID}: reached unexpected code path")
         return {}
 
+    def deletePoolByPoolID(self, region: str, poolID: str) -> dict:
+        """ delete poolID with "poolID" in specified region
+        
+        Args:
+            region (str): Name of GCP region
+            poolID (str): poolID of pool
+        Returns:
+            dict: Returns API response as dict            
+        """     
+
+        logging.info(f"deletePoolByPoolID {region}, {poolID}")
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Pools/{poolID}", 60)
+        return r.json()
+
     #
     # Volumes
     #
