@@ -6,7 +6,7 @@ import logging
 import re
 import random
 from time import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class GCPCVS():
     """ A class used to manage Cloud Volumes Services on GCP 
@@ -70,7 +70,7 @@ class GCPCVS():
     # CVS API returns error details in response body. Give users a chance to get see that messages
     def _log_response(self, resp, *args, **kwargs):
         if resp.status_code not in [200, 202]:
-            logging.error(f"{resp.url} returned: {resp.text}")
+            logging.warning(f"{resp.url} returned: {resp.text}")
 
    # generic GET function for internal use.
    # Adds error logging for HTTP errors and throws expections
@@ -91,27 +91,33 @@ class GCPCVS():
    # Implements waiting for job slots
    # Adds error logging for HTTP errors and throws expections
    # returns requests response object
-    def _do_api_post(self, url: str, payload: dict, max_retries: int = 10):
-        logging.info(f"REST POST {url}")
+    def _do_api_post(self, url: str, payload: dict, wait_seconds: int = 600):
+        logging.info(f"API POST {url}")
 
-        retries = max_retries
-        while retries > 0:
+        target_time = datetime.now() + timedelta(seconds = wait_seconds)
+        while datetime.now() < target_time:
             r = requests.post(url, headers=self.headers, auth=self.token, json=payload, hooks={'response': self._log_response})
-            if r.status_code == 500:
+            # For some error codes we want sleep and repeat request
+            if r.status_code in [429, 409, 500]:
+                # 429 Too many requests
+                # 409 Pool is already transitioning between states
+                # 500 internal server error
                 reason = r.json()
-                if 'message' in reason:                    
-                    if "Cannot spawn additional jobs" in reason['message']:
-                        logging.info(f"API POST: Waiting for next job slot.")
-                        # Wait fo 45-75 seconds
-                        sleep(random.randrange(45,75))
-                        retries = retries - 1
+                logging.info(f"API POST: {reason}")
+                if r.status_code == 500:
+                    if 'message' in reason:
+                        msg = reason['message']
                     else:
-                        logging.error(f"API POST: 500 - {reason['message']}")
+                        msg = "error"                     
+                    if "Cannot spawn additional jobs" in msg:
+                        pass
+                    else:
+                        # leave loop and let raise_for_status throw an exception
+                        logging.error(f"API POST: {reason}")
                         break
-                else:
-                    logging.error(f"API POST: 500 - {reason}")
-                    break
+                sleep(random.randrange(50,70))
             else:
+                # Success or non-transient error
                 break
         r.raise_for_status()
         return r
@@ -120,34 +126,36 @@ class GCPCVS():
    # Implements waiting for job slots
    # Adds error logging for HTTP errors and throws expections
    # returns requests response object
-    def _do_api_delete(self, url: str, max_retries: int = 12):
-        logging.info(f"REST DELETE {url}")
+    def _do_api_delete(self, url: str, wait_seconds: int = 120):
+        logging.info(f"API DELETE {url}")
 
-        retries = max_retries
-        while retries > 0:
+        target_time = datetime.now() + timedelta(seconds = wait_seconds)
+        while datetime.now() < target_time:
             r = requests.delete(url, headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-            if r.status_code == 500:
+            # For some error codes we want sleep and repeat request
+            if r.status_code in [429, 409, 500]:
+                # 429 Too many requests
+                # 409 Pool is already transitioning between states
+                # 500 internal server error
                 reason = r.json()
-                if 'message' in reason:                    
-                    if "Cannot spawn additional jobs" in reason['message']:
-                        logging.info(f"API DELETE: Waiting for next job slot.")
-                        # Wait fo 5-15 seconds
-                        sleep(random.randrange(5,15))
-                        retries = retries - 1
+                logging.info(f"API DELETE: {reason}")
+                if r.status_code == 500:
+                    if 'message' in reason:
+                        msg = reason['message']
                     else:
-                        logging.error(f"API DELETE: 500 - {reason['message']}")
+                        msg = "error"                     
+                    if "Cannot spawn additional jobs" in msg:
+                        pass
+                    else:
+                        # leave loop and let raise_for_status throw an exception
+                        logging.error(f"API POST: {reason}")
                         break
-                else:
-                    logging.error(f"API DELETE: 500 - {reason}")
-                    break
-            if r.status_code == 429:
-                # Wait fo 5-15 seconds
                 sleep(random.randrange(5,15))
-                retries = retries - 1
             else:
+                # Success or non-transient error
                 break
         r.raise_for_status()
-        return r
+        return r                    
 
     #
     # StoragePools
@@ -182,7 +190,7 @@ class GCPCVS():
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools")
         return [pool for pool in r.json() if pool["name"] == name]
 
-    def getPoolsByVolumeID(self, region: str, poolID: str) -> dict:
+    def getPoolsByPoolID(self, region: str, poolID: str) -> dict:
         """ returns list with dicts of volumes with "poolID" in specified region
         
         Args:
@@ -193,24 +201,24 @@ class GCPCVS():
             list[dict]: a list of dicts with pool descriptions
         """     
 
-        logging.info(f"getPoolsByVolumeID {region}, {poolID}")
+        logging.info(f"getPoolByPoolID {region}, {poolID}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
         return r.json()
 
-    def createPool(self, region: str, payload: dict, retries: int = 10) -> dict:
+    def createPool(self, region: str, payload: dict, timeout: int = 15*60) -> dict:
         """ Creates a StoragePool. Basic method. May add more specifc ones which build on top of it later
                 
         Args:
             region (str): Name of GCP region
             payload (dict): dict with all parameters
-            retries (int): Retries, default = 10
+            timeout (int): timeout in seconds, default = 15*60
 
         Returns:
             dict: Returns dict with pool description
         """
 
         logging.info(f"createPool {region}, {payload}")
-        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Pools", payload, retries)
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Pools", payload, timeout)
 
         poolID = r.json()['response']['AnyValue']['poolId']
         if r.status_code == 200: 
@@ -219,7 +227,7 @@ class GCPCVS():
             logging.info(f"createVolume: {region}, {poolID} created")
             return r.json() # return data of new volume
         if r.status_code == 202: 
-            # volume still creating, wait for completion
+            # pool still creating, wait for completion
             volumeID = r.json()['response']['AnyValue']['poolId']
             while True:
                 sleep(20)
@@ -234,6 +242,51 @@ class GCPCVS():
         logging.error(f"createPool: {region}, {poolID}: reached unexpected code path")
         return {}
 
+    def _modifyPoolByPoolID(self, region: str, poolID: str, changes: dict) -> dict:
+        """ Modifies a pool. Internal method
+                
+        Args:
+            region (str): Name of GCP region
+            volumeID (str): poolID of volume
+            changes (dict): dict with changes to pool
+
+        Returns:
+            dict: Returns API response as dict
+        """     
+
+        logging.info(f"_modifyPoolByPoolID {region}, {poolID}, {changes}")
+        # read pool
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
+        # remove some fields the API doesn't like to get written back
+        pool = r.json()
+        if pool['serviceLevel'] == "StandardSW":
+            if 'zone' in pool:
+                del pool['zone']
+            if 'regionalHA' in pool:
+                del pool['regionalHA']
+        # Merge changes
+        pool = {**pool, **changes}
+        # Update pool
+        r = requests.put(f"{self.baseurl}/locations/{region}/Pools/{poolID}", headers=self.headers, auth=self.token, json=pool, hooks={'response': self._log_response})
+        r.raise_for_status()
+        # Add code to wait for completion?
+        return r.json()
+    
+    def resizePoolByPoolID(self, region: str, poolID: str, newSize: int) -> dict:
+        """ Resize a pool
+                
+        Args:
+            region (str): Name of GCP region
+            poolID (str): poolID of pool
+            newSize (int): New pool size in bytes
+
+        Returns:
+            dict: Returns API response as dict
+        """  
+
+        logging.info(f"resizePoolByPoolID {region}, {poolID}, {newSize}")
+        return self._modifyPoolByPoolID(region, poolID, {"sizeInBytes": newSize})
+
     def deletePoolByPoolID(self, region: str, poolID: str) -> dict:
         """ delete poolID with "poolID" in specified region
         
@@ -245,7 +298,8 @@ class GCPCVS():
         """     
 
         logging.info(f"deletePoolByPoolID {region}, {poolID}")
-        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Pools/{poolID}", 60)
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Pools/{poolID}", 10*60)
+        # Add code to wait for completion?
         return r.json()
 
     #
@@ -308,7 +362,7 @@ class GCPCVS():
             dict: Returns API response as dict
         """     
 
-        logging.info(f"modifyVolumeByVolumeID {region}, {volumeID}, {changes}")
+        logging.info(f"_modifyVolumeByVolumeID {region}, {volumeID}, {changes}")
         # read volume
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
         # Merge changes
@@ -318,17 +372,20 @@ class GCPCVS():
         r.raise_for_status()
         return r.json()
     
-    def resizeVolumeByVolumeID(self, region: str, volumeID: str, newSize: int):
+    def resizeVolumeByVolumeID(self, region: str, volumeID: str, newSize: int) -> dict:
         """ Resize a volume
                 
         Args:
             region (str): Name of GCP region
             volumeID (str): volumeID of volume
             newSize (int): New volume size in bytes
+
+        Returns:
+            dict: Returns API response as dict
         """  
 
         logging.info(f"updateVolumeByVolumeID {region}, {volumeID}, {newSize}")
-        self._modifyVolumeByVolumeID(region, volumeID, {"quotaInBytes": newSize})
+        return self._modifyVolumeByVolumeID(region, volumeID, {"quotaInBytes": newSize})
 
     def setServiceLevelByVolumeID(self, region: str, volumeID: str, serviceLevel: str):
         """ Change service level of volume
@@ -342,20 +399,20 @@ class GCPCVS():
         logging.info(f"setServiceLevelByVolumeID {region}, {volumeID}, {serviceLevel}")
         self._modifyVolumeByVolumeID(region, volumeID, {"serviceLevel": self.translateServiceLevelUI2API(serviceLevel)})
 
-    def createVolume(self, region: str, payload: dict, retries: int = 10) -> dict:
+    def createVolume(self, region: str, payload: dict, timeout: int = 15*60) -> dict:
         """ Creates a volume. Basic method. May add more specifc ones which build on top of it later
                 
         Args:
             region (str): Name of GCP region
             payload (dict): dict with all parameters
-            retries (int): Retries, default = 10
+            timeout (int): timeout in seconds, default = 15*60
 
         Returns:
             dict: Returns dict with volume description
         """
 
         logging.info(f"createVolume {region}, {payload}")
-        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Volumes", payload, retries)
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Volumes", payload, timeout)
 
         volumeID = r.json()['response']['AnyValue']['volumeId']
         if r.status_code == 200: 
@@ -390,7 +447,7 @@ class GCPCVS():
         """     
 
         logging.info(f"deleteVolumeByVolumeID {region}, {volumeID}")
-        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", 60)
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", 10*60)
         return r.json()
 
     # CVS API uses serviceLevel = (basic, standard, extreme)
@@ -471,7 +528,7 @@ class GCPCVS():
         """     
 
         logging.info(f"deleteSnapshotBySnapshotID {region}, {snaphotID}")
-        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}")
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Snapshots/{snaphotID}", 2*60)
         return r.json()
 
     #
@@ -543,7 +600,7 @@ class GCPCVS():
             "name": name,
             "volumeId": volumeID
         }
-        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Backups", body, 10)
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Backups", body, 10*60)
         if r.status_code == 201 or r.status_code == 202:
             # Wait until backup is complete
             backupID = r.json()["response"]["AnyValue"]["backupId"]
@@ -612,7 +669,7 @@ class GCPCVS():
     def deleteBackupByBackupID(self, region: str, backupID: str) -> bool:
         logging.info(f"deleteBackupByBackupID: {region}, {backupID} begin")
 
-        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", 60)
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Backups/{backupID}", 10*60)
         if r.status_code in [200, 202]:
             logging.info(f"deleteBackupByBackupID: {region}, {backupID} done.")
             return True
@@ -684,7 +741,7 @@ class GCPCVS():
         """
 
         logging.info(f"deleteKMSConfigurationByID: {region}, {configID} begin")
-        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", 60)
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/Storage/KmsConfig/{configID}", 2*60)
         if r.status_code in [200, 202]:
             logging.info(f"deleteKMSConfigurationByID: {region}, {configID} done.")
             return True
