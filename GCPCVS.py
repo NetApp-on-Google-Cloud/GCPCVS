@@ -161,21 +161,21 @@ class GCPCVS():
     # StoragePools
     #
 
-    def getPoolsByRegion(self, region: str) -> list[dict]:
+    def getPoolsByRegion(self, region: str) -> list:
         """ returns list with dicts of all pools in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with pool descriptions
+            list: a list of dicts with pool descriptions
         """
 
         logging.info(f"getPoolsByRegion {region}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools")
         return r.json()
 
-    def getPoolsByName(self, region: str, name: str) -> list[dict]:
+    def getPoolsByName(self, region: str, name: str) -> list:
         """ returns list with dicts of pools named "name" in specified region
         
         Args:
@@ -183,7 +183,7 @@ class GCPCVS():
             name (str): Name of pool
 
         Returns:
-            list[dict]: a list of dicts with pool descriptions
+            list: a list of dicts with pool descriptions
         """     
 
         logging.info(f"getPoolsByName {region}, {name}")
@@ -198,7 +198,7 @@ class GCPCVS():
             poolID (str): poolID of pool
 
         Returns:
-            list[dict]: a list of dicts with pool descriptions
+            list: a list of dicts with pool descriptions
         """     
 
         logging.info(f"getPoolByPoolID {region}, {poolID}")
@@ -306,21 +306,21 @@ class GCPCVS():
     # Volumes
     #
 
-    def getVolumesByRegion(self, region: str) -> list[dict]:
+    def getVolumesByRegion(self, region: str) -> list:
         """ returns list with dicts of all volumes in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with volume descriptions
+            list: a list of dicts with volume descriptions
         """
 
         logging.info(f"getVolumesByRegion {region}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
         return r.json()
 
-    def getVolumesByName(self, region: str, name: str) -> list[dict]:
+    def getVolumesByName(self, region: str, name: str) -> list:
         """ returns list with dicts of volumes named "name" in specified region
         
         Args:
@@ -328,7 +328,7 @@ class GCPCVS():
             name (str): Name of volume
 
         Returns:
-            list[dict]: a list of dicts with volume descriptions
+            list: a list of dicts with volume descriptions
         """     
 
         logging.info(f"getVolumesByName {region}, {name}")
@@ -343,7 +343,7 @@ class GCPCVS():
             volumeID (str): volumeID of volume
 
         Returns:
-            list[dict]: a list of dicts with volume descriptions
+            list: a list of dicts with volume descriptions
         """     
 
         logging.info(f"getVolumesByVolumeID {region}, {volumeID}")
@@ -503,14 +503,14 @@ class GCPCVS():
     # Snapshots
     #
 
-    def getSnapshotsByRegion(self, region: str) -> list[dict]:
+    def getSnapshotsByRegion(self, region: str) -> list:
         """ returns list with dicts of all snapshots in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with snapshot descriptions
+            list: a list of dicts with snapshot descriptions
         """
 
         logging.info(f"getSnapshotsByRegion {region}")
@@ -535,14 +535,14 @@ class GCPCVS():
     # Replication
     #
 
-    def getVolumeReplicationByRegion(self, region: str) -> list[dict]:
+    def getVolumeReplicationByRegion(self, region: str) -> list:
         """ returns list with dicts of all relationships in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with relationship descriptions
+            list: a list of dicts with relationship descriptions
         """
 
         logging.info(f"getVolumeReplicationByRegion {region}")
@@ -553,21 +553,21 @@ class GCPCVS():
     # Backups
     #
 
-    def getBackups(self, region: str) -> list[dict]:
+    def getBackups(self, region: str) -> list:
         """ returns list with dicts of all backups in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with backup descriptions
+            list: a list of dicts with backup descriptions
         """
 
         logging.info(f"getBackups {region}")        
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Backups")
         return r.json()
 
-    def getBackupsByVolumeID(self, region: str, volumeID: str) -> list[dict]:
+    def getBackupsByVolumeID(self, region: str, volumeID: str) -> list:
         """ returns list with dicts of backups with "volumeID" in specified region
         
         Args:
@@ -575,7 +575,7 @@ class GCPCVS():
             volumeID (str): volumeID of volume
 
         Returns:
-            list[dict]: a list of dicts with backup descriptions
+            list: a list of dicts with backup descriptions
         """  
 
         logging.info(f"getBackupsByVolume {region}, {volumeID}")
@@ -700,21 +700,21 @@ class GCPCVS():
     # KMS config
     #
 
-    def getKMSConfigurationByRegion(self, region: str) -> list[dict]:
+    def getKMSConfigurationByRegion(self, region: str) -> list:
         """ returns list with dicts of all KMS configurations in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with KMS config descriptions
+            list: a list of dicts with KMS config descriptions
         """
 
         logging.info(f"getKMSConfigurationByRegion {region}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/KmsConfig")
         return r.json()
          
-    def getKMSConfigurationByID(self, region: str, configID: str) -> list[dict]:
+    def getKMSConfigurationByID(self, region: str, configID: str) -> list:
         """ returns list with dicts of all KMS configurations in specified region
         
         Args:
@@ -722,7 +722,7 @@ class GCPCVS():
             configID (str): UUID fo KMS configuration
 
         Returns:
-            list[dict]: a list of dicts with KMS config descriptions
+            list: a list of dicts with KMS config descriptions
         """
 
         logging.info(f"getKMSConfigurationByID {region} {configID}")
@@ -749,28 +749,28 @@ class GCPCVS():
             logging.error(f"deleteKMSConfigurationByID: Deleting config {configID} in region {region} failed.")
             return False
 
-    def getActiveDirectoryConfigurationByRegion(self, region: str) -> list[dict]:
+    def getActiveDirectoryConfigurationByRegion(self, region: str) -> list:
         """ returns list with dicts of all AD configurations in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with AD configuration descriptions
+            list: a list of dicts with AD configuration descriptions
         """
 
         logging.info(f"getActiveDirectoryConfigurationByRegion {region}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Storage/ActiveDirectory")
         return r.json()
 
-    def getActiveDirectoryConfigurationByID(self, region: str, configID: str) -> list[dict]:
+    def getActiveDirectoryConfigurationByID(self, region: str, configID: str) -> list:
         """ returns list with dicts of all AD configurations in specified region
         
         Args:
             region (str): name of GCP region. "-" for all
 
         Returns:
-            list[dict]: a list of dicts with AD configurations descriptions
+            list: a list of dicts with AD configurations descriptions
         """
 
         logging.info(f"getActiveDirectoryConfigurationByID {region} {configID}")

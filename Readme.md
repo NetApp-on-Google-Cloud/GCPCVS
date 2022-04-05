@@ -79,9 +79,22 @@ gcloud-cvs volume list
 gcloud-cvs volume list --format json
 ``` 
 
+## Troubleshooting
+
+Want more details of what is going on? Configure logging in your code:
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+```
+
+It will give you infos on all method calls, and for some API calls it will log error codes. Please note that some error codes are handled internally (e.g. waiting for the API to take more calls).
+
+Please note: The code will pass through exceptions to the using code, if they cannot be handled internally. You error handling needs to catch these exceptions or error out.
+
 ## Getting help
 
 This code is unsupported. Use at your own risk. The source is currently the documentation.
 
-Code should run on Python3.6+.
+Code should run on Python3.7+.
 Code is tested, developed and used on Python3.9 on MacOS.
