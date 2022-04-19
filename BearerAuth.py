@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import requests
-import base64, json, logging, re, datetime
+import base64, json, logging, re, datetime, threading
 from google.auth.transport.requests import Request as googleRequest
 from google.auth.jwt import Credentials
 from google.oauth2 import service_account
@@ -85,15 +85,17 @@ class BearerAuth(requests.auth.AuthBase):
         token = None
         service_account_name = None
         token_life_time = 15*60  # 15 Minutes
+        _lock = threading.Lock()
 
         def __init__(self, service_account_name: str):
             self.service_account_name = service_account_name
             self._new_token()
 
         def get_token(self) -> str:
-            if datetime.datetime.now() + datetime.timedelta(seconds=10) > self.expiry:
-                # Token to expire within 10s. Let's refresh
-                self._new_token()
+            with self._lock:
+                if datetime.datetime.now() + datetime.timedelta(seconds=10) > self.expiry:
+                    # Token to expire within 10s. Let's refresh
+                    self._new_token()
             return self.token
 
         def _new_token(self):
@@ -118,6 +120,7 @@ class BearerAuth(requests.auth.AuthBase):
     class JSONKeyCreds:
         # Internal helper class for JSON key auth
         credentials = None
+        _lock = threading.Lock()
 
         def __init__(self, json_key: str):
             audience = 'https://cloudvolumesgcp-api.netapp.com'
@@ -129,6 +132,7 @@ class BearerAuth(requests.auth.AuthBase):
             self.credentials = jwt_creds
 
         def get_token(self) -> str:
-            if self.credentials.expired:
-                self.credentials.refresh(googleRequest())
+            with self._lock:
+                if self.credentials.expired:
+                    self.credentials.refresh(googleRequest())
             return self.credentials.token.decode('utf-8')
