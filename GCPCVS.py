@@ -5,8 +5,11 @@ import requests
 import logging
 import re
 import random
-from time import sleep
+from time import sleep, time
 from datetime import datetime, timedelta
+
+Volume = dict
+VolumeList = list[Volume]
 
 class GCPCVS():
     """ A class used to manage Cloud Volumes Services on GCP 
@@ -400,7 +403,7 @@ class GCPCVS():
         self._modifyVolumeByVolumeID(region, volumeID, {"serviceLevel": self.translateServiceLevelUI2API(serviceLevel)})
 
     def createVolume(self, region: str, payload: dict, timeout: int = 15*60) -> dict:
-        """ Creates a volume. Basic method. May add more specifc ones which build on top of it later
+        """ Creates a volume. Basic method. May add more specific ones which build on top of it later
                 
         Args:
             region (str): Name of GCP region
@@ -412,7 +415,11 @@ class GCPCVS():
         """
 
         logging.info(f"createVolume {region}, {payload}")
-        r = self._do_api_post(f"{self.baseurl}/locations/{region}/Volumes", payload, timeout)
+        if 'isDataProtection' in payload and payload['isDataProtection'] == True:
+            # Create a Data Protection volume
+            r = self._do_api_post(f"{self.baseurl}/locations/{region}/DataProtectionVolumes", payload, timeout)
+        else:
+            r = self._do_api_post(f"{self.baseurl}/locations/{region}/Volumes", payload, timeout)
 
         volumeID = r.json()['response']['AnyValue']['volumeId']
         if r.status_code == 200: 
@@ -547,6 +554,106 @@ class GCPCVS():
 
         logging.info(f"getVolumeReplicationByRegion {region}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/VolumeReplications")
+        return r.json()
+
+    def getVolumeReplicationByID(self, region: str, relationshipID: str) -> list:
+        """ returns list with dicts of all relationships in specified region with relationshipID (one expected)
+        
+        Args:
+            region (str): name of GCP region. 
+            relationshipID (str): ID of relationship
+
+        Returns:
+            list: a list of dicts with relationship descriptions
+        """
+
+        logging.info(f"getVolumeReplicationByID {region}")
+        r = self._do_api_get(f"{self.baseurl}/locations/{region}/VolumeReplications/{relationshipID}")
+        return r.json()    
+
+    def createVolumeReplication(self, relationship_name: str, source_volume: Volume, destination_volume: Volume, schedule: str) -> dict:
+        """ Creates a Volume Replication Relationship.
+                
+        Args:
+            relationship_name (str): Name of the Volume Replication relationship
+            source_volume (dict): dictionary of source volume
+            destination_volume (dict): dictionary of destination volume
+            schedule (str): Replication schedule (10minutely|hourly|daily)
+
+        Returns:
+            dict: Returns dict with replication description
+        """
+
+        logging.info(f"createVolumeReplication {relationship_name}")
+        region = destination_volume["region"]
+        # Add check if destination is Secondary and available
+        if destination_volume['isDataProtection'] == False:
+            # destination volume needs to be a secondary volume
+            raise ValueError(f"Volume {destination_volume['volumeId']} needs to by a secondary/dataprotection volume.")
+        if destination_volume['inReplication'] == True:
+            # destination already in a replicationship. May add code later to read the relationship and return its data instead of none
+            logging.warning(f"createVolumeReplication {relationship_name}: Destination volume {destination_volume['volumeId']} already in replication state.")
+            return None
+        # Check if schedule is valid string
+        if schedule not in ['10minutely', 'hourly', 'daily']:
+            raise ValueError(f"Invalid schedule: {schedule} (10minutely|hourly|daily)")
+
+        payload = {
+            "destinationVolumeUUID": destination_volume["volumeId"],
+            "endpointType": "dst",
+            "name": relationship_name,
+            "remoteRegion": source_volume["region"],
+            "replicationPolicy": "MirrorAllSnapshots",
+            "replicationSchedule": schedule,
+            "sourceVolumeUUID": source_volume["volumeId"]
+        }
+        print(f"{self.baseurl}/locations/{region}/VolumeReplications")
+        logging.info(f"createVolumeReplication {relationship_name} {payload}")
+        r = self._do_api_post(f"{self.baseurl}/locations/{region}/VolumeReplications", payload)
+        return r
+
+    def breakVolumeReplicationByID(self, destination_region: str, relationshipID: str, force: bool) -> dict:
+        """ breaks a replication relationship with "relationshipID" in specified region
+        
+        Args:
+            destination_region (str): Name of GCP region of destination volume
+            relationshipID (str): ID of replication relationship
+            force (bool): Force break True/False
+        Returns:
+            dict: Returns API response as dict            
+        """     
+
+        logging.info(f"breakVolumeReplicationByID {destination_region}, {relationshipID}, {force}")
+        payload = {
+            "force": force
+        }
+        r = self._do_api_post(f"{self.baseurl}/locations/{destination_region}/VolumeReplications/{relationshipID}/Break", payload)
+
+        # Wait for connection to be broken
+        start = time()
+        while True:
+            sleep(15)
+            res = self._do_api_get(f"{self.baseurl}/locations/{destination_region}/VolumeReplications/{relationshipID}")
+            if res.json()['lifeCycleState'] == 'available':
+                break
+            # Add timeout in case relationship never becomes available
+            if time() > start + 5*60:
+                raise TimeoutError(f"breakVolumeReplicationByID {destination_region}, {relationshipID} Waiting for break to finish timed out")
+            logging.info(f"breakVolumeReplicationByID {destination_region}, {relationshipID} Waiting for break to complete")
+        return res.json()
+
+    def deleteVolumeReplicationByID(self, region: str, relationshipID: str) -> dict:
+        """ delete replication relationship with "relationshipID" in specified region
+        
+        Args:
+            region (str): Name of GCP region
+            relationshipID (str): ID of replication relationship
+        Returns:
+            dict: Returns API response as dict            
+        """     
+
+        logging.info(f"deleteVolumeReplicationByID {region}, {relationshipID}")
+        r = self._do_api_delete(f"{self.baseurl}/locations/{region}/VolumeReplications/{relationshipID}", 10*60)
         return r.json()
 
     #
