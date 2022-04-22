@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 Volume = dict
 VolumeList = list[Volume]
 
-class GCPCVS():
+class gcpcvs():
     """ A class used to manage Cloud Volumes Services on GCP 
     
     All CVS objects currently handled are basically a python dict representation of
@@ -42,7 +42,7 @@ class GCPCVS():
         """
 
         self.service_account = service_account
-        self.token = BearerAuth(service_account)    # Will raise ValueError is key provided is invalid
+        self.token = BearerAuth(service_account)    # Will raise ValueError if key provided is invalid
 
         if project == None:
             # Fetch projectID from JSON key file
@@ -887,7 +887,7 @@ class GCPCVS():
 if __name__ == "__main__":
     """" Read data from CVS API
     
-    Usage: GCPCVS.py <keyfile> <region> <API_path>
+    Usage: gcpcvs.py <keyfile> <region> <API_path>
         credentials = File path to a valid JSON key of service account with cloudvolumes.viewer or admin permissions or SSI service account
         region = Name of GCP region or "-" for all regions
         <API_path> = Suffix part of CVS API GET call paths
@@ -903,25 +903,25 @@ if __name__ == "__main__":
     part. Just add missing part as <API_path>.
     
     Examples:
-        GCPCVS.py keyfile.json - Volumes
-        GCPCVS.py cvs-admin@my-project.iam.gserviceaccount.com us-east4 Volumes/704eae52-9010-ea4d-0408-08ca39ffb67f
-        GCPCVS.py keyfile.json us-west1 version
-        GCPCVS.py keyfile.json - Snapshots
-        GCPCVS.py keyfile.json - Storage/ActiveDirectory
+        gcpcvs.py keyfile.json - Volumes
+        gcpcvs.py cvs-admin@my-project.iam.gserviceaccount.com us-east4 Volumes/704eae52-9010-ea4d-0408-08ca39ffb67f
+        gcpcvs.py keyfile.json us-west1 version
+        gcpcvs.py keyfile.json - Snapshots
+        gcpcvs.py keyfile.json - Storage/ActiveDirectory
     """
     import sys
     import json
     from pathlib import Path
 
     if len(sys.argv) != 4:
-        logging.notice("Usage: GCPCVS.py <credentials> <region> <API_URL_PATH>")
+        logging.notice("Usage: gcpcvs.py <credentials> <region> <API_URL_PATH>")
         sys.exit(1)
 
     credentials = Path(sys.argv[1])
     region = sys.argv[2]
     urlpath = sys.argv[3]
 
-    cvs = GCPCVS(None, credentials)
+    cvs = gcpcvs(None, credentials)
     result = cvs._do_api_get(f"{cvs.baseurl}/locations/{region}/{urlpath}")
     if result.status_code == 200:
         print(json.dumps(result.json(), indent=4))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 
 
-import GCPCVS
+import gcpcvs
 import logging
 import typer
 import json
@@ -21,7 +21,7 @@ app.add_typer(replication_app, name="replication")
 kms_app = typer.Typer(no_args_is_help=True)
 app.add_typer(kms_app, name="kms")
 
-cvs: GCPCVS
+cvs: gcpcvs
 
 def print_results(entries: list, fields: list, style: str = "text"):
     if style == "text":
@@ -83,5 +83,5 @@ if __name__ == "__main__":
         logging.error('Missing service account credentials. Please set SERVICE_ACCOUNT_CREDENTIAL.')
         sys.exit(2)
 
-    cvs = GCPCVS.GCPCVS(credentials)
+    cvs = gcpcvs.gcpcvs(credentials)
     app()
