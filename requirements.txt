@@ -1,7 +1,0 @@
-requests
-google
-google.auth
-google-api-python-client
-google-cloud-iam
-typer
-tabulate

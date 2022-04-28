@@ -567,9 +567,24 @@ class gcpcvs():
             list: a list of dicts with relationship descriptions
         """
 
-        logging.info(f"getVolumeReplicationByID {region}")
+        logging.info(f"getVolumeReplicationByID {region} {relationshipID}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/VolumeReplications/{relationshipID}")
         return r.json()    
+
+    def getVolumeReplicationByName(self, region: str, name: str) -> list:
+        """ returns list with dicts of all relationships in specified region with name (one expected)
+
+        Args:
+            region (str): name of GCP region
+            name (str): name of relationship
+
+        Returns:
+            list: a list of dicts with relationship descriptions
+        """
+
+        logging.info(f"getVolumeReplicationByName {region} {name}")
+        relationships = self.getVolumeReplicationByRegion(region)
+        return [r for r in relationships if r['name'] == name]
 
     def createVolumeReplication(self, relationship_name: str, source_volume: Volume, destination_volume: Volume, schedule: str) -> dict:
         """ Creates a Volume Replication Relationship.
@@ -610,6 +625,7 @@ class gcpcvs():
         print(f"{self.baseurl}/locations/{region}/VolumeReplications")
         logging.info(f"createVolumeReplication {relationship_name} {payload}")
         r = self._do_api_post(f"{self.baseurl}/locations/{region}/VolumeReplications", payload)
+        # TODO: Should we wait until it is available in mirrored state? And return a full CRR json?
         return r
 
     def breakVolumeReplicationByID(self, destination_region: str, relationshipID: str, force: bool) -> dict:
@@ -636,11 +652,71 @@ class gcpcvs():
             res = self._do_api_get(f"{self.baseurl}/locations/{destination_region}/VolumeReplications/{relationshipID}")
             if res.json()['lifeCycleState'] == 'available':
                 break
+            if res.json()['lifeCycleState'] == 'error':
+                logging.error(f"breakVolumeReplicationByID {destination_region}, {relationshipID}: {res.json()['lifeCycleStateDetails']}")
+                raise RuntimeError(res.json()['lifeCycleStateDetails'])
             # Add timeout in case relationship never becomes available
             if time() > start + 5*60:
                 raise TimeoutError(f"breakVolumeReplicationByID {destination_region}, {relationshipID} Waiting for break to finish timed out")
             logging.info(f"breakVolumeReplicationByID {destination_region}, {relationshipID} Waiting for break to complete")
         return res.json()
+
+    def resyncVolumeReplicationByID(self, destination_region: str, relationshipID: str) -> dict:
+        """ resyncs a replication relationship with "relationshipID" in specified region
+
+        Args:
+            destination_region (str): Name of GCP region of destination volume
+            relationshipID (str): ID of replication relationship
+        Returns:
+            dict: Returns API response as dict
+        """
+
+        logging.info(f"resyncVolumeReplicationByID {destination_region}, {relationshipID}")
+        payload = {
+        }
+        r = self._do_api_post(f"{self.baseurl}/locations/{destination_region}/VolumeReplications/{relationshipID}/Resync", payload)
+        # TODO: Should we wait until it is available in mirrored state? And return a full CRR json?
+        return r.json()
+
+    def createReverseVolumeReplicationByID(self, relationship_region: str, relationshipID: str) -> dict:
+        """ reverse resyncs a replication relationship with "relationshipID" in specified region
+
+        Args:
+            relationship_region (str): Region where existing CRR relationship is managed
+            relationshipID (str): ID of replication relationship
+        Returns:
+            dict: Returns API response as dict
+
+        It creates a new relationship with directions reversed. Take the same relatonship name and
+        attached "-reversed" to it
+        """
+
+        logging.info(f"createReverseVolumeReplicationByID {relationship_region}, {relationshipID}")
+        # read existing relationship
+        relationship = self.getVolumeReplicationByID(relationship_region, relationshipID)
+
+        # is relationship broken?
+        if relationship['mirrorState'] != 'broken':
+            logging.error(f"createReverseVolumeReplicationByID {relationship_region}, {relationshipID} - mirror not broken")
+            raise ValueError(f"createReverseVolumeReplicationByID {relationship_region}, {relationshipID} - mirror not broken")
+        if relationship['relationshipStatus'] != 'idle':
+            logging.error(f"createReverseVolumeReplicationByID {relationship_region}, {relationshipID} - relationshipStatus not idle")
+            raise ValueError(f"createReverseVolumeReplicationByID {relationship_region}, {relationshipID} - relationshipStatus not idle")
+        # Maybe check volumes for isInReplication? How do we know this is a valid resync? It builds a new connection
+
+        payload = {
+            "destinationVolumeUUID": relationship['sourceVolumeUUID'],
+            "sourceVolumeUUID": relationship['destinationVolumeUUID'],
+            "remoteRegion": relationship['destinationRegion'],
+            "endpointType": "dst",
+            "name": relationship['name'] + "-reversed",
+            "replicationPolicy": relationship['replicationPolicy'],
+            "replicationSchedule": relationship['replicationSchedule'],
+        }
+        reverse_relationship = self._do_api_post(f"{self.baseurl}/locations/{relationship['remoteRegion']}/VolumeReplications", payload)
+
+        # TODO: Should we wait until it is available in mirrored state? And return a full CRR json?
+        return reverse_relationship.json()
 
     def deleteVolumeReplicationByID(self, region: str, relationshipID: str) -> dict:
         """ delete replication relationship with "relationshipID" in specified region
@@ -654,6 +730,7 @@ class gcpcvs():
 
         logging.info(f"deleteVolumeReplicationByID {region}, {relationshipID}")
         r = self._do_api_delete(f"{self.baseurl}/locations/{region}/VolumeReplications/{relationshipID}", 10*60)
+        # TODO: Should we wait until the delete is complete?
         return r.json()
 
     #
