@@ -50,43 +50,113 @@ def getGoogleProjectNumber(project_id: str) -> Optional[str]:
    logging.error(f"Cannot resolve {project_id} to project number")
    return None
 
+def get_host_project(service_project: str) -> str:
+   """Lookup host project ID for gives ProjectID
+   
+   Args:
+      service_project (str): Google Service Project ID
+      
+   Returns: Host Project ID
+   """
+   credentials, project = default()
+
+   service = discovery.build('compute', 'v1', credentials = credentials)
+
+   request = service.projects().getXpnHost(project = service_project)
+   response = request.execute()
+
+   if 'name' in response:
+      return response['name']
+   else:
+      return None
+
+def get_gcp_regions() -> list[str]:
+   """Returns list of all GCP regions
+   
+   Returns:
+      list(str): List of GCP regions
+   
+   """   
+   credentials, project = default()
+   service = discovery.build('compute', 'v1', credentials = credentials)
+
+   request = service.regions().list(project = project)
+   gcp_regions = []
+   while request is not None:
+      response = request.execute()
+
+      for region in response['items']:
+         gcp_regions.append(region['name'])
+
+      request = service.regions().list_next(previous_request=request, previous_response=response)
+   return gcp_regions
+
 class VPCPeerings():
    cvs_peerings = []
    def __init__(self, project: str):
+      """
+      Args:
+         project (str): Google project_id
+      """
+      self.cvs_peerings = []
       self.update_peerings(project)
+      # If project is a service project, get CVS peerings for host project also
+      host_project = get_host_project(project)
+      if host_project:
+         self.update_peerings(host_project)
 
    def update_peerings(self, project: str):
       # Fetch all Peerings to CVS
       credentials, _ = default()
       service = discovery.build('compute', 'v1', credentials=credentials)
 
-      self.cvs_peerings = []
       request = service.networks().list(project = project)
       while request is not None:
          response = request.execute()
-         for network in response['items']:
-            for peering in network['peerings']:
-                  m = re.search(f'https://www.googleapis.com/compute/v1/projects/(.+)/global/networks/(netapp(-sds)?-tenant-vpc)$', peering['network'])
-                  if m:
-                     peering['vpc'] = network['name']
-                     peering['tp'] = m.group(1)
-                     if m.group(3):
-                        peering['hardware'] = False
-                     else:
-                        peering['hardware'] = True
-                     self.cvs_peerings.append(peering)
+         if 'items' in response:
+            for network in response['items']:
+               for peering in network['peerings']:
+                     m = re.search(f'https://www.googleapis.com/compute/v1/projects/(.+)/global/networks/(netapp(-sds)?-tenant-vpc)$', peering['network'])
+                     if m:
+                        peering['vpc'] = network['name']
+                        peering['tp'] = m.group(1)
+                        if m.group(3):
+                           peering['hardware'] = False
+                        else:
+                           peering['hardware'] = True
+                        peering['project'] = project
+                        self.cvs_peerings.append(peering)
          request = service.networks().list_next(previous_request=request, previous_response=response)
 
-   def get_networks(self):
+   def get_networks(self, is_hw: bool) -> set:
+      """
+      Get list of peered VPCs for service type
+
+      Args:
+         is_hw (bool): True for CVS-Performance, False for CVS
+      """
       # Returns a set of all connected VPCs.
       # hardware or software
-      return  {p['vpc'] for p in self.cvs_peerings}
+      r = set()
+      for p in self.cvs_peerings:
+         if p['hardware'] == is_hw:
+            r.add(p['vpc'])
+      return r
 
-   def get_tenant_project(self, is_hw: bool, vpc: str):
+   def get_tenant_project(self, is_hw: bool, vpc: str) -> str:
+      # Returns tenant project for given VPC and service type
       for n in self.cvs_peerings:
          if n['vpc'] == vpc and n['hardware'] == is_hw:
             return n['tp']
       return None
+
+   def is_active(self, is_hw: bool, vpc: str) -> bool:
+      # Checks if peering in active
+      for n in self.cvs_peerings:
+         if n['vpc'] == vpc and n['hardware'] == is_hw:
+            return n['state'] == 'ACTIVE'
+      return None
+
 
 
 
