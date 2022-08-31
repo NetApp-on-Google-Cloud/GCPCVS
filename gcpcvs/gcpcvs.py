@@ -368,7 +368,13 @@ class gcpcvs():
 
         logging.info(f"getVolumesByName {region}, {name}")
         r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes")
-        return [volume for volume in r.json() if volume["name"] == name]
+        vols = [volume for volume in r.json() if volume["name"] == name]
+        # Do a lookup of volumeId, since to generic query returns less details compared to volumeID query
+        # We actuall expect only one or no volule to match the name
+        if len(vols) == 1:
+            return [self.getVolumesByVolumeID(region, vols[0]['volumeId'])]
+        else:
+            return []
 
     def getVolumesByVolumeID(self, region: str, volumeID: str) -> dict:
         """ returns list with dicts of volumes with "volumeID" in specified region
@@ -964,6 +970,10 @@ class gcpcvs():
         else:
             logging.error(f"deleteKMSConfigurationByID: Deleting config {configID} in region {region} failed.")
             return False
+
+    #
+    # Active Directory config
+    #
 
     def getActiveDirectoryConfigurationByRegion(self, region: str) -> list:
         """ returns list with dicts of all AD configurations in specified region
