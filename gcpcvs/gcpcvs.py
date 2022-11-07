@@ -172,7 +172,6 @@ class gcpcvs():
         available_sw_regions = ['asia-east2', 'asia-northeast2', 'asia-northeast3', 'asia-south1', 'asia-south2', 'asia-southeast2',
                              'australia-southeast2',
                              'europe-central2', 'europe-north1', 'europe-west1', 'europe-west6',
-                             'northamerica-northeast2',
                              'southamerica-east1',
                              'us-east1', 'us-west1']
         return region in available_sw_regions
@@ -188,10 +187,22 @@ class gcpcvs():
         """           
         available_hw_regions = ['asia-northeast1', 'asia-southeast1',
                              'australia-southeast1',
-                             'europe-west2', 'europe-west3', 'europe-west4',
-                             'northamerica-northeast1',
+                             'europe-west2', 'europe-west3', 'europe-west4', 'europe-southwest1',
+                             'northamerica-northeast1', 'northamerica-northeast2',
                              'us-central1', 'us-east4', 'us-west2', 'us-west3', 'us-west4']
-        return region in available_hw_regions        
+        return region in available_hw_regions
+
+    def getVersionByRegion(self, region: str) -> dict:
+        """ returns API and SDE version for specified region
+        
+        Also checks for API permissions
+        
+        Args:
+            region (str): name of GCP region
+        """
+        res = self._do_api_get(f"{self.baseurl}/locations/{region}/version")
+        return res.json()
+
     #
     # StoragePools
     #
