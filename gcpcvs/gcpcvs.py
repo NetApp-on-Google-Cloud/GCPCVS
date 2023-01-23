@@ -90,23 +90,36 @@ class gcpcvs():
         r.raise_for_status()
         return r
 
-   # generic POST function for internal use.
-   # Implements waiting for job slots
-   # Adds error logging for HTTP errors and throws expections
-   # returns requests response object
-    def _do_api_post(self, url: str, payload: dict, wait_seconds: int = 600):
+    # generic POST function for internal use.
+    # Implements waiting for job slots
+    # Adds error logging for HTTP errors and throws expections
+    # returns requests response object
+    # use timeout_seconds == 0 for no error handling
+    def _do_api_post(self, url: str, payload: dict, timeout_seconds: int = 600):
         logging.info(f"API POST {url}")
 
-        target_time = datetime.now() + timedelta(seconds = wait_seconds)
-        while datetime.now() < target_time:
+        target_time = datetime.now() + timedelta(seconds = timeout_seconds)
+        while True:
             r = requests.post(url, headers=self.headers, auth=self.token, json=payload, hooks={'response': self._log_response})
-            # For some error codes we want sleep and repeat request
+            reason = r.json()
+
+            # If timeout_seconds is 0, we are not repeat the call
+            if timeout_seconds == 0:
+                if r.status_code not in [200, 202]:
+                    # If API call returned without 200 or 202, log error
+                    logging.error(f"API POST: {reason}")
+                break
+
+            # Successful call
+            if r.status_code in [200, 202]:
+                break
+
+            # For some error codes we want to sleep and repeat request
             if r.status_code in [429, 409, 500]:
                 # 429 Too many requests
                 # 409 Pool is already transitioning between states
                 # 500 internal server error
-                reason = r.json()
-                logging.info(f"API POST: {reason}")
+                logging.warning(f"API POST: {reason}")
                 if r.status_code == 500:
                     if 'message' in reason:
                         msg = reason['message']
@@ -120,28 +133,46 @@ class gcpcvs():
                         break
                 sleep(random.randrange(50,70))
             else:
-                # Success or non-transient error
+                # any other HTTP error
+                logging.error(f"API POST: {reason}")
+                break
+
+            # Timeout
+            if datetime.now() >= target_time:
                 break
         r.raise_for_status()
         return r
 
-   # generic DELETE function for internal use.
-   # Implements waiting for job slots
-   # Adds error logging for HTTP errors and throws expections
-   # returns requests response object
-    def _do_api_delete(self, url: str, wait_seconds: int = 120):
+    # generic DELETE function for internal use.
+    # Implements waiting for job slots
+    # Adds error logging for HTTP errors and throws expections
+    # returns requests response object
+    # use timeout_seconds == 0 for no error handling
+    def _do_api_delete(self, url: str, timeout_seconds: int = 120):
         logging.info(f"API DELETE {url}")
 
-        target_time = datetime.now() + timedelta(seconds = wait_seconds)
-        while datetime.now() < target_time:
+        target_time = datetime.now() + timedelta(seconds = timeout_seconds)
+        while True:
             r = requests.delete(url, headers=self.headers, auth=self.token, hooks={'response': self._log_response})
-            # For some error codes we want sleep and repeat request
+            reason = r.json()
+
+            # If timeout_seconds is 0, we are not repeat the call
+            if timeout_seconds == 0:
+                if r.status_code not in [200, 202]:
+                    # If API call returned without 200 or 202, log error
+                    logging.error(f"API POST: {reason}")
+                break
+
+            # Successful call
+            if r.status_code in [200, 202]:
+                break
+
+            # For some error codes we want to sleep and repeat request
             if r.status_code in [429, 409, 500]:
                 # 429 Too many requests
                 # 409 Pool is already transitioning between states
                 # 500 internal server error
-                reason = r.json()
-                logging.info(f"API DELETE: {reason}")
+                logging.warning(f"API POST: {reason}")
                 if r.status_code == 500:
                     if 'message' in reason:
                         msg = reason['message']
@@ -153,12 +184,17 @@ class gcpcvs():
                         # leave loop and let raise_for_status throw an exception
                         logging.error(f"API POST: {reason}")
                         break
-                sleep(random.randrange(5,15))
+                sleep(random.randrange(50,70))
             else:
-                # Success or non-transient error
+                # any other HTTP error
+                logging.error(f"API POST: {reason}")
+                break
+
+            # Timeout
+            if datetime.now() >= target_time:
                 break
         r.raise_for_status()
-        return r                    
+        return r
 
     def is_type_cvs(self, region: str) -> bool:
         """ returns True if CVS-SW is available in specified region
@@ -301,19 +337,8 @@ class gcpcvs():
         """     
 
         logging.info(f"_modifyPoolByPoolID {region}, {poolID}, {changes}")
-        # read pool
-        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Pools/{poolID}")
-        # remove some fields the API doesn't like to get written back
-        pool = r.json()
-        if pool['serviceLevel'] == "StandardSW":
-            if 'zone' in pool:
-                del pool['zone']
-            if 'regionalHA' in pool:
-                del pool['regionalHA']
-        # Merge changes
-        pool = {**pool, **changes}
         # Update pool
-        r = requests.put(f"{self.baseurl}/locations/{region}/Pools/{poolID}", headers=self.headers, auth=self.token, json=pool, hooks={'response': self._log_response})
+        r = requests.put(f"{self.baseurl}/locations/{region}/Pools/{poolID}", headers=self.headers, auth=self.token, json=changes, hooks={'response': self._log_response})
         r.raise_for_status()
         # Add code to wait for completion?
         return r.json()
@@ -415,12 +440,8 @@ class gcpcvs():
         """     
 
         logging.info(f"_modifyVolumeByVolumeID {region}, {volumeID}, {changes}")
-        # read volume
-        r = self._do_api_get(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}")
-        # Merge changes
-        volume = {**r.json(), **changes}
         # Update volume
-        r = requests.put(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, json=volume, hooks={'response': self._log_response})
+        r = requests.put(f"{self.baseurl}/locations/{region}/Volumes/{volumeID}", headers=self.headers, auth=self.token, json=changes, hooks={'response': self._log_response})
         r.raise_for_status()
         return r.json()
     

@@ -55,6 +55,12 @@ pip3 install .
 # use pip3 install -e . if you want to do modifications to the code
 ```
 4. Run sample code
+
+```bash
+# This is just a pretty printer used in the output below. Use is not required.
+pip3 install -U tabulate
+```
+
 ```python
 import gcpcvs
 from tabulate import tabulate
@@ -117,4 +123,4 @@ Please note: The code will pass through exceptions to the using code, if they ca
 This code is unsupported. Use at your own risk. The source is currently the documentation.
 
 Code should run on Python3.7+.
-Code is tested, developed and used on Python3.9 on MacOS.
+Code is tested, developed and used on Python3.10 on MacOS.
