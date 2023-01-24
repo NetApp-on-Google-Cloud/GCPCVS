@@ -114,18 +114,21 @@ class VPCPeerings():
       while request is not None:
          response = request.execute()
          if 'items' in response:
+            # Iterate over all VPCs found
             for network in response['items']:
-               for peering in network['peerings']:
-                     m = re.search(f'https://www.googleapis.com/compute/v1/projects/(.+)/global/networks/(netapp(-sds)?-tenant-vpc)$', peering['network'])
-                     if m:
-                        peering['vpc'] = network['name']
-                        peering['tp'] = m.group(1)
-                        if m.group(3):
-                           peering['hardware'] = False
-                        else:
-                           peering['hardware'] = True
-                        peering['project'] = project
-                        self.cvs_peerings.append(peering)
+               # Does the VPC have an peerings?
+               if 'peerings' in network:
+                  for peering in network['peerings']:
+                        m = re.search(f'https://www.googleapis.com/compute/v1/projects/(.+)/global/networks/(netapp(-sds)?-tenant-vpc)$', peering['network'])
+                        if m:
+                           peering['vpc'] = network['name']
+                           peering['tp'] = m.group(1)
+                           if m.group(3):
+                              peering['hardware'] = False
+                           else:
+                              peering['hardware'] = True
+                           peering['project'] = project
+                           self.cvs_peerings.append(peering)
          request = service.networks().list_next(previous_request=request, previous_response=response)
 
    def get_networks(self, is_hw: bool) -> set:
